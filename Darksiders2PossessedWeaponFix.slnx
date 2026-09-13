@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="Darksiders2PossessedWeaponFix\Darksiders2PossessedWeaponFix.vcxproj" Id="fea34b2a-2b26-40c6-be5e-aafb5abecf4c" />
+</Solution>
