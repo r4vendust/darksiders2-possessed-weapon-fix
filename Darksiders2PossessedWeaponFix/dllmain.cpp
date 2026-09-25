@@ -10,19 +10,32 @@
 // How it works:
 //   - The generic function FUN_140149da8 (offset 0x149DA8) is responsible for
 //     adding items to arrays throughout the game engine.
-//   - When the game tries to add a 7th item to a Possessed Weapon's attribute
-//     array (which only supports 6), the hook intercepts and blocks it.
+//   - A Possessed Weapon's attribute array holds 6 usable slots:
+//         2 damage slots (min/max, auto-populated on drop)
+//       + 4 attribute slots (the game's hardcap)
+//   - The field at pArray+0x08 is a 1-based "next free slot" index, NOT the
+//     number of items currently stored. The correct thresholds are:
+//         count = 6  -> next add targets slot #6 (last valid)  -> ALLOW
+//         count = 7  -> next add targets slot #7 (overflow)    -> BLOCK
+//   - The hook intercepts the addition and returns early only when an actual
+//     overflow would occur.
 //   - The _ReturnAddress() filter ensures that only calls originating from the
 //     weapon upgrade context are affected. All other uses of the function
 //     (inventory, quests, save loading) continue to work normally.
 //
 // IMPORTANT NOTE:
 //   - The visual "INVALID ID" text WILL still appear in the Level Up UI when
-//     the player attempts to select a 7th attribute. This is purely cosmetic.
+//     the player attempts to select a 7th slot. This is purely cosmetic.
 //   - The actual bug (memory corruption) is prevented by this hook, so no
 //     data is lost and the weapon remains fully functional.
 //   - The visual text cannot be removed without hooking the Scaleform UI
 //     system, which is out of scope for this fix.
+//
+// CHANGELOG:
+//   - v2 (2026-09): Fixed an off-by-one that blocked the legitimate 4th
+//     attribute. The previous build used a threshold of 6, which caused the
+//     hook to reject a valid addition when the weapon had 2 damage slots and
+//     3 attributes. The correct threshold is 7.
 //
 // ============================================================================
 // LICENSE
@@ -71,7 +84,12 @@ tAddToArray oAddToArray = nullptr;
 // Offsets discovered via reverse engineering
 const uintptr_t OFFSET_ADD_ITEM_FUNCTION = 0x149DA8; // FUN_140149da8
 const uintptr_t OFFSET_WEAPON_UPGRADE_CALLER = 0x5BE300; // Return address of upgrade
-const int       MAX_ITEMS_ALLOWED = 6; // Safe limit of the array
+
+// The field at pArray+0x08 is a 1-based "next free slot" index. When it
+// reaches 7, the next write would target slot index 6 (the 7th item), which
+// is past the end of the 6-slot array. Block at >= 7 to prevent overflow
+// while still allowing the legitimate 6th item (the game's 4th attribute).
+const int BLOCK_THRESHOLD = 7;
 
 // ============================================================================
 // HOOK FUNCTION
@@ -87,8 +105,8 @@ void __fastcall Hooked_AddToArray(uintptr_t pArray, uintptr_t pItem) {
 
     // If it's a weapon upgrade, check the limit before allowing the addition
     if (isUpgradeContext) {
-        int* sizePtr = (int*)(pArray + 0x08); // Array size offset
-        if (*sizePtr >= MAX_ITEMS_ALLOWED) {
+        int* nextSlotPtr = (int*)(pArray + 0x08);
+        if (*nextSlotPtr >= BLOCK_THRESHOLD) {
             // Silently block the addition that would cause the overflow.
             // The game's UI will still show "INVALID ID" visually, but no
             // memory corruption occurs and the weapon remains safe.
